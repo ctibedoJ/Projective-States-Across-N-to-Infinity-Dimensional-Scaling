@@ -1,0 +1,89 @@
+import math
+from scipy.integrate import quad
+
+class ContinuousCartanKleinField:
+    """
+    Infinite N Limit of the V3 Projective Degeneracy Theorem.
+    Evaluates the exact continuous topological field theory equations.
+    """
+    def __init__(self, p_density):
+        self.p = p_density
+        
+        # 1. Continuous Fredholm Gauge 
+        # The exact geometric integration of the parabolic root field: 6p / e^2
+        self.vol_inf = (6.0 * self.p) / math.exp(2)
+        self.gauge = self.vol_inf ** (-0.25)
+
+    def _lambda_field(self, x):
+        # The continuous root density mapped over normalized domain x in [0, 1]
+        return 6.0 * self.p * x * (1.0 - x)
+
+    def _klein_generating_function(self, lam):
+        # Analytic continuation of the Z_4 infinite modulo sequence
+        return (4 - 2*lam - lam**2 + 3*lam**3) / (1 - lam**4)
+
+    def _mapped_state(self, x):
+        lam = self._lambda_field(x)
+        return self.gauge * self._klein_generating_function(lam)
+
+    def calculate_continuous_killing_trace(self):
+        """Integrates the squared continuous states to find the absolute Casimir Energy limit."""
+        integrand = lambda x: self._mapped_state(x)**2
+        K_inf, error = quad(integrand, 0, 1)
+        return K_inf, self.vol_inf
+
+class DiscreteRenormalizedEngine:
+    """
+    Finite N V3 Engine, renormalized to test against the Infinite N limit.
+    """
+    def __init__(self, n, p_density):
+        self.N = n
+        self.p_total = p_density * self.N
+        self.coeffs = [4, -2, -1, 3]
+
+    def test_convergence(self):
+        mu = [((k + 1) * (self.N - k)) / (self.N + 1) for k in range(self.N)]
+        S = sum(mu)
+        
+        lambdas = [self.p_total * (m / S) for m in mu]
+        
+        # Fredholm normalized discrete volume
+        log_vol = sum(math.log(lam) for lam in lambdas)
+        discrete_vol = math.exp(log_vol / self.N)
+        discrete_gauge = discrete_vol ** (-0.25)
+        
+        # Run finite polynomial map to sufficient depth
+        states = []
+        for lam in lambdas:
+            # We approximate the infinite series boundary with a high iteration
+            pi_val = sum(self.coeffs[j % 4] * (lam**j) for j in range(100))
+            states.append(discrete_gauge * pi_val)
+            
+        discrete_k_trace = sum(s**2 for s in states) / self.N # Normalized trace density
+        return discrete_k_trace, discrete_vol
+
+# --- Convergence Execution Test ---
+if __name__ == "__main__":
+    # We use a fractional prime density < 1/1.5 to avoid the 
+    # pole singularity in the continuous generating function at lambda=1.
+    p_density = 0.1 
+    massive_N = 1000  # CP^999 space
+    
+    # 1. Run the Infinite Field Theory limit
+    infinite_engine = ContinuousCartanKleinField(p_density)
+    K_inf, vol_inf = infinite_engine.calculate_continuous_killing_trace()
+    
+    # 2. Run the Massive Discrete N test
+    discrete_engine = DiscreteRenormalizedEngine(massive_N, p_density)
+    K_discrete, vol_discrete = discrete_engine.test_convergence()
+    
+    print("=== N -> INFINITY ASYMPTOTIC CONVERGENCE TEST ===")
+    print(f"Prime Field Density: {p_density}\n")
+    
+    print("--- Volumetric Gauge Convergence ---")
+    print(f"Discrete Vol (N={massive_N}): {vol_discrete:.8f}")
+    print(f"Infinite Analytic Limit:   {vol_inf:.8f}")
+    
+    print("\n--- Casimir Energy Density (Killing Trace) ---")
+    print(f"Discrete Trace Density:    {K_discrete:.8f}")
+    print(f"Infinite Integral Limit:   {K_inf:.8f}")

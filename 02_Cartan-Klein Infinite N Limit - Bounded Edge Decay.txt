@@ -1,0 +1,95 @@
+import math
+from typing import List, Tuple
+
+class AsymptoticLambdaDiagnostic:
+    """
+    Production-grade diagnostic engine for the Cartan-Klein Infinite N Limit.
+    Extracts raw lambda roots and their logarithms to prove bounded edge decay.
+    """
+    
+    def __init__(self, n: int, p_density: float):
+        self.N = n
+        self.p = p_density
+        self.p_total = self.p * self.N
+
+    def _generate_discrete_roots(self) -> List[float]:
+        """Calculates the exact discrete fractional micro-states lambda_k."""
+        mu = [((k + 1) * (self.N - k)) / (self.N + 1) for k in range(self.N)]
+        S = sum(mu)
+        return [self.p_total * (m / S) for m in mu]
+
+    def _continuous_analytic_root(self, x: float) -> float:
+        """Evaluates the exact continuous parabolic field limit."""
+        return 6.0 * self.p * x * (1.0 - x)
+
+    def extract_lambda_logs(self) -> List[Tuple[int, float, float, float, float, float]]:
+        """
+        Maps the discrete roots against the continuous limit and computes the logs.
+        Returns: [(k, x, discrete_lambda, cont_lambda, discrete_log, cont_log), ...]
+        """
+        lambdas = self._generate_discrete_roots()
+        results = []
+        
+        for k, lam in enumerate(lambdas):
+            x = k / float(self.N - 1) if self.N > 1 else 0.0
+            cont_lam = self._continuous_analytic_root(x)
+            
+            # Protect against math.log(0) at the absolute continuous boundaries
+            safe_cont_lam = max(cont_lam, 1e-12)
+            safe_lam = max(lam, 1e-12)
+            
+            results.append((
+                k, 
+                x, 
+                lam, 
+                cont_lam, 
+                math.log(safe_lam), 
+                math.log(safe_cont_lam)
+            ))
+            
+        return results
+
+    def run_boundary_diagnostic(self):
+        """Executes the diagnostic and formats the boundary convergence proof."""
+        data = self.extract_lambda_logs()
+        
+        print(f"=== CARTAN-KLEIN BOUNDARY DIAGNOSTIC (N={self.N}, p={self.p}) ===")
+        print(f"{'k':<6} | {'x':<6} | {'Discrete λ':<15} | {'Analytic λ':<15} | {'Discrete ln(λ)':<18} | {'Analytic ln(λ)':<18}")
+        print("-" * 85)
+        
+        # Display Leading Edge (Proving lower boundary stability)
+        for row in data[:5]:
+            self._print_row(row)
+            
+        print(f"{'...':<6} | {'...':<6} | {'...':<15} | {'...':<15} | {'...':<18} | {'...':<18}")
+        
+        # Display Manifold Center (Proving maximum expansion)
+        mid = self.N // 2
+        for row in data[mid-2:mid+3]:
+            self._print_row(row)
+
+        print(f"{'...':<6} | {'...':<6} | {'...':<15} | {'...':<15} | {'...':<18} | {'...':<18}")
+        
+        # Display Trailing Edge (Proving symmetric boundary closure)
+        for row in data[-5:]:
+            self._print_row(row)
+            
+        # Verify Volumetric Gauge Integrity
+        discrete_log_sum = sum(row[4] for row in data)
+        discrete_vol = math.exp(discrete_log_sum / self.N)
+        analytic_vol = (6.0 * self.p) / math.exp(2)
+        
+        print("-" * 85)
+        print("=== VOLUMETRIC GAUGE INTEGRITY ===")
+        print(f"Discrete Fredholm Volume:  {discrete_vol:.8e}")
+        print(f"Analytic Fredholm Limit:   {analytic_vol:.8e}")
+        print(f"Delta:                     {abs(discrete_vol - analytic_vol):.8e}")
+
+    def _print_row(self, row: Tuple):
+        k, x, d_lam, c_lam, d_log, c_log = row
+        print(f"{k:<6d} | {x:<6.4f} | {d_lam:<15.6e} | {c_lam:<15.6e} | {d_log:<18.6f} | {c_log:<18.6f}")
+
+if __name__ == "__main__":
+    # Test an exceptionally large N to prove asymptotic stability
+    engine = AsymptoticLambdaDiagnostic(n=1000, p_density=1.0)
+    engine.run_boundary_diagnostic()

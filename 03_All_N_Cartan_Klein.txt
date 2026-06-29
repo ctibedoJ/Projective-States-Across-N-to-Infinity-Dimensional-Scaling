@@ -1,0 +1,110 @@
+import math, json, hashlib
+from fractions import Fraction
+from typing import List, Dict, Any
+from decimal import Decimal, getcontext
+
+
+class CartanKleinAllN:
+    COEFFS = [4, -2, -1, 3]
+    DECIMAL_PRECISION = 50
+
+    @staticmethod
+    def _isqrt_frac_decimal(frac: Fraction, prec: int) -> Decimal:
+        getcontext().prec = prec + 10
+        scale = 10 ** (2 * (prec + 5))
+        root_int = math.isqrt((frac.numerator * scale) // frac.denominator)
+        return Decimal(root_int) / Decimal(10 ** (prec + 5))
+
+    def compute(self, n: int, p: int, metric_tensor: List[float] = None) -> Dict[str, Any]:
+        N = n + 1
+        mu = [Fraction((k + 1) * (N - k), N + 1) for k in range(N)]
+        S = sum(mu)
+        base_vol = Fraction(1, 1)
+        for m in mu:
+            base_vol *= (m / S)
+        if metric_tensor is None:                       # default polarized chiral G
+            half = N // 2
+            metric_tensor = [2.0] * half + [1.0] * (N - half)
+        if len(metric_tensor) != N:
+            raise ValueError(f"G must have N={N} entries for n={n}")
+        G = [Fraction(g).limit_denominator(10 ** 12) for g in metric_tensor]
+        lams, pis = [], []
+        for m in mu:
+            lam = Fraction(p) * (m / S)
+            lams.append(lam)
+            pis.append(sum(self.COEFFS[j % 4] * (lam ** j) for j in range(N)))
+
+        signature = [1 if pi >= 0 else -1 for pi in pis]          # EXACT per dimension
+        R = sum(G[k] * pis[k] * pis[k] for k in range(N))
+        radicand = (Fraction(p) ** N) * base_vol
+        sqrt_rad = self._isqrt_frac_decimal(radicand, self.DECIMAL_PRECISION)
+        getcontext().prec = self.DECIMAL_PRECISION
+        K_total = (Decimal(R.numerator) / Decimal(R.denominator)) / sqrt_rad
+
+        canonical = {
+            "n": n, "N": N, "p": p, "coeffs": self.COEFFS,
+            "G": [f"{g.numerator}/{g.denominator}" for g in G],
+            "signature": signature,
+            "R": f"{R.numerator}/{R.denominator}",
+            "radicand": f"{radicand.numerator}/{radicand.denominator}",
+        }
+        proof_hash = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+        return {
+            "n": n, "N": N, "p": p,
+            "signature": signature,
+            "num_positive": sum(1 for s in signature if s > 0),
+            "num_negative": sum(1 for s in signature if s < 0),
+            "R_exact": f"{R.numerator}/{R.denominator}",
+            "radicand_exact": f"{radicand.numerator}/{radicand.denominator}",
+            "K_total_decimal": str(K_total),
+            "proof_hash": proof_hash,
+        }
+
+
+def sweep_all_N(p: int = 3571, n_max: int = 22, metric_tensor=None,
+                save_json: bool = False, json_path: str = None) -> Dict[str, Any]:
+    """All-N exact signature sweep. Returns the report dict and prints the table.
+    Set save_json=True to write a JSON (defaults to your home folder)."""
+    eng = CartanKleinAllN()
+    rows = []
+    print(f"ALL-N signature sweep  |  p={p}  |  n=1..{n_max}")
+    print(f"{'n':>3} {'N':>3} {'#+':>3} {'#-':>3}  signature")
+    print("-" * 70)
+
+    for n in range(1, n_max + 1):
+        r = eng.compute(n, p, metric_tensor)
+        rows.append(r)
+        print(f"{r['n']:>3} {r['N']:>3} {r['num_positive']:>3} {r['num_negative']:>3}  {r['signature']}")
+
+    master = hashlib.sha256(
+        json.dumps([r["proof_hash"] for r in rows], separators=(",", ":")).encode()
+    ).hexdigest()
+
+    report = {
+        "engine": "CartanKleinAllN",
+        "author": "Dr. Charles R. Tibedo",
+        "prime": p,
+        "n_range": [1, n_max],
+        "bit_exact": True,
+        "hash_domain": "exact rationals (R, radicand, signature) -- machine-independent",
+        "rows": rows,
+        "master_hash": master,
+    }
+
+    print("-" * 70)
+    print(f"MASTER ALL-N HASH (bit-exact, cross-machine): {master}")
+    if save_json:
+        from pathlib import Path
+        out = Path(json_path) if json_path else (Path.home() / "cartan_klein_allN_results.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, default=str))
+        print(f"JSON -> {out}")
+
+    return report
+
+
+# ---- run example ----
+report = sweep_all_N(3571, 22)

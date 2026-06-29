@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""
+Integrated Chiral Cartan-Klein Engine  (vXY1.0 full integration)
+================================================================
+Unifies:
+  - vX1.0  SymbolicCartanKlein   : exact Fraction arithmetic + polarized
+                                    leading/trailing Casimir decomposition
+  - vXY1.0 GeneralizedChiralCartanKlein : arbitrary diagonal metric G,
+                                    arbitrary dimension n, arbitrary prime p
+
+into a single engine with exact rational base arithmetic, an arbitrary chiral
+metric, the polarized (leading 2x / trailing 1x) decomposition recovered as the
+special case G=[2,2,2,2,1,1,1,1], and fully reproducible JSON output that records
+the exact input structure and per-state logs needed to reproduce every number.
+
+Author: Dr. Charles R. Tibedo
+"""
+from __future__ import annotations
+from fractions import Fraction
+from typing import List, Dict, Optional
+import json, time, hashlib, math
+from pathlib import Path
+
+
+class IntegratedCartanKlein:
+    """
+    Exact Cartan-Klein classification on CP^n under an arbitrary diagonal metric.
+
+    Base arithmetic is rational (Fraction): the Cartan inverse diagonal mu_k, the
+    trace S, and the base volume are computed exactly; only the final gauge power
+    (a real 1/4 root) and the Klein polynomial evaluation are floating point, and
+    both are logged with the exact rational inputs that produced them.
+    """
+
+    KLEIN_SEQUENCE = [4, -2, -1, 3]   # Z_4-graded Klein opcode (exact integers)
+
+    def __init__(self, n: int):
+        self.n = n
+        self.N = n + 1
+        # exact Cartan inverse diagonal mu_k = (k+1)(N-k)/(N+1)
+        self.mu: List[Fraction] = [
+            Fraction((k + 1) * (self.N - k), self.N + 1) for k in range(self.N)
+        ]
+        self.S: Fraction = sum(self.mu)                      # exact trace
+        # exact scale-invariant base volume = prod(mu_k / S)
+        self.base_vol_exact: Fraction = Fraction(1, 1)
+        for m in self.mu:
+            self.base_vol_exact *= (m / self.S)
+        # base gauge gamma_base = |base_vol|^{-1/4}  (real root, exact input logged)
+        self.base_gauge: float = abs(float(self.base_vol_exact)) ** (-0.25)
+
+    # ---- core Klein polynomial (Horner, exact integer coeffs) ----
+    def _klein_poly(self, lam: float) -> float:
+        coeffs = (self.KLEIN_SEQUENCE * ((self.N + 3) // 4))[:self.N]
+        acc = 0.0
+        for c in reversed(coeffs):
+            acc = acc * lam + c
+        return acc
+
+    def default_chiral_metric(self) -> List[float]:
+        """The polarized metric of vX1.0: leading half 2x, trailing half 1x."""
+        half = self.N // 2
+        return [2.0] * half + [1.0] * (self.N - half)
+
+    def compute(self, p: int, g_diagonal: Optional[List[float]] = None) -> Dict:
+        """
+        Full conformal projection + chiral Casimir invariant under metric G.
+
+        Returns a fully reproducible record: exact rational inputs, the per-state
+        lambda / pi / state / log values, the signature, the polarized
+        leading/trailing decomposition, and the metric-weighted invariant.
+        """
+        if g_diagonal is None:
+            g_diagonal = self.default_chiral_metric()
+        if len(g_diagonal) != self.N:
+            raise ValueError(f"Metric G must have exactly N={self.N} diagonal entries.")
+
+        gamma_p = (p ** (-self.N / 4.0)) * self.base_gauge
+
+        per_state = []
+        states = []
+        for k, m in enumerate(self.mu):
+            lam_exact = p * (m / self.S)          # exact Fraction
+            lam = float(lam_exact)
+            pi_val = self._klein_poly(lam)
+            state = gamma_p * pi_val
+            states.append(state)
+            per_state.append({
+                "k": k,
+                "mu_k": str(m),                    # exact rational
+                "lambda_exact": str(lam_exact),    # exact rational
+                "lambda_float": lam,
+                "pi_klein": pi_val,
+                "state": state,
+                "state_sign": 1 if state >= 0.0 else -1,
+                "state_sq": state * state,
+                "g_weight": g_diagonal[k],
+                "weighted_sq": g_diagonal[k] * state * state,
+                "ln_abs_state": math.log(abs(state)) if state != 0 else None,
+            })
+
+        signature = [d["state_sign"] for d in per_state]
+
+        # polarized decomposition (general G): split at the half index
+        half = self.N // 2
+        leading_energy = sum(per_state[k]["weighted_sq"] for k in range(half))
+        trailing_energy = sum(per_state[k]["weighted_sq"] for k in range(half, self.N))
+        casimir = leading_energy + trailing_energy
+
+        return {
+            "manifold": f"CP^{self.n}",
+            "n": self.n,
+            "N": self.N,
+            "prime": p,
+            "klein_sequence": self.KLEIN_SEQUENCE,
+            "exact_inputs": {
+                "mu": [str(m) for m in self.mu],
+                "S": str(self.S),
+                "base_vol_exact": str(self.base_vol_exact),
+                "base_gauge": self.base_gauge,
+                "gamma_p": gamma_p,
+            },
+            "metric_G": list(g_diagonal),
+            "per_state": per_state,
+            "signature": signature,
+            "leading_energy": leading_energy,
+            "trailing_energy": trailing_energy,
+            "casimir_invariant": casimir,
+        }
+
+
+def build_reproducible_report(out_path: Path) -> Dict:
+    report = {
+        "engine": "IntegratedCartanKlein",
+        "version": "vXY1.0-full-integration",
+        "author": "Dr. Charles R. Tibedo",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "input_structure": {
+            "manifold": "CP^n, base dimension N=n+1",
+            "cartan_inverse_diagonal": "mu_k = (k+1)(N-k)/(N+1), exact Fraction",
+            "trace": "S = sum_k mu_k",
+            "base_volume": "prod_k (mu_k/S), exact Fraction",
+            "base_gauge": "|base_vol|^{-1/4}",
+            "prime_gauge": "gamma_p = p^{-N/4} * base_gauge",
+            "lambda": "lambda_k = p * (mu_k / S)",
+            "klein_projection": "pi_k = sum_j KLEIN[j mod 4] * lambda_k^j, KLEIN=[4,-2,-1,3]",
+            "state": "state_k = gamma_p * pi_k",
+            "signature": "sign(state_k)",
+            "metric_G": "arbitrary diagonal, length N (default polarized [2..2,1..1])",
+            "casimir_invariant": "K_G(p) = sum_k G_k * state_k^2 = leading + trailing",
+        },
+        "runs": [],
+    }
+
+    # Run A: vX1.0 reproduction -- CP^7, p=3571, default polarized metric
+    eng7 = IntegratedCartanKlein(7)
+    runA = eng7.compute(3571)  # default polarized G
+    report["runs"].append({"label": "vX1.0_reproduction_CP7_p3571_polarized", "result": runA})
+    print("=== Run A: CP^7, p=3571, polarized G (vX1.0 reproduction) ===")
+    print("Signature:", runA["signature"])
+    print("First 4 states:", [d["state"] for d in runA["per_state"][:4]])
+    print(f"Leading (2x):  {runA['leading_energy']:.6e}")
+    print(f"Trailing (1x): {runA['trailing_energy']:.6e}")
+    print(f"Total K(p):    {runA['casimir_invariant']:.6e}")
+
+    # Run B: vXY1.0 parametric sweep -- CP^7, chiral G, prime family
+    chiral_G = [2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0]
+    print("\n=== Run B: CP^7 parametric sweep (vXY1.0), chiral G ===")
+    print(f"{'p':<8} | {'signature':<28} | {'K_G(p)':<20}")
+    print("-" * 64)
+    sweep = []
+    for p in [3, 7, 97, 1009, 7919]:
+        r = eng7.compute(p, chiral_G)
+        sweep.append(r)
+        print(f"{p:<8d} | {str(r['signature']):<28} | {r['casimir_invariant']:.12e}")
+    report["runs"].append({"label": "vXY1.0_CP7_prime_sweep_chiralG",
+                           "metric_G": chiral_G, "results": sweep})
+
+    # Run C: dimensional scaling -- CP^15, split metric
+    eng15 = IntegratedCartanKlein(15)
+    G16 = [2.0] * 8 + [1.0] * 8
+    runC = eng15.compute(7919, G16)
+    report["runs"].append({"label": "dimensional_scaling_CP15_p7919", "result": runC})
+    print("\n=== Run C: CP^15, p=7919, split G ===")
+    print("Signature:", runC["signature"])
+    print(f"Invariant: {runC['casimir_invariant']:.12e}")
+
+    # Run D: determinism -- 10 identical runs of Run A
+    ref = eng7.compute(3571)
+    det = all(eng7.compute(3571)["casimir_invariant"] == ref["casimir_invariant"]
+              for _ in range(10))
+    report["determinism"] = {"input": "CP^7,p=3571,polarized", "runs": 10, "deterministic": det}
+    print(f"\nDETERMINISM: {'PASS' if det else 'FAIL'} (10 identical runs)")
+
+    # reproducibility hash over the exact-input + invariant of Run A
+    payload = json.dumps({
+        "exact_inputs": runA["exact_inputs"],
+        "signature": runA["signature"],
+        "casimir": runA["casimir_invariant"],
+    }, sort_keys=True)
+    h = hashlib.sha256(payload.encode()).hexdigest()[:16]
+    report["reproducibility_hash"] = h
+    print(f"REPRODUCIBILITY HASH: {h}")
+
+    out_path.write_text(json.dumps(report, indent=2, default=str))
+    print(f"\nJSON -> {out_path}")
+    return report
+
+
+if __name__ == "__main__":
+    build_reproducible_report(Path("C:/ctibedo/fano_sig/cartan_klein_integrated_results.json"))
+!python3 -c "import py_compile; py_compile.compile('cartan_klein_integrated.py', doraise=True); print('compile OK')"
+!python3 cartan_klein_integrated.py
